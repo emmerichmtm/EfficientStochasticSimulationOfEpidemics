@@ -1,5 +1,5 @@
 import numpy as np
-#from numba import njit
+from numba import njit
 import networkx as nx
 import matplotlib.pyplot as plt
 import random
@@ -14,6 +14,7 @@ class EpidemicGraph:
     def __init__(self, infection_rate=0.1, recovery_rate=0.1):
         self.G = nx.Graph()
         self.infection_rate = infection_rate
+        self.recovery_rate = recovery_rate  # Recovery rate is the same for all nodes
         self.infected_nodes = SortedList(key=lambda x: -self.G.nodes[x]['sum_of_weights_i'])
         self.total_infection_rate = 0
         self.total_recovery_rate = 0
@@ -67,12 +68,12 @@ class EpidemicGraph:
             logging.critical(f"Node {node} not in infected nodes list.")
         self.total_recovery_rate -= self.recovery_rate
         # REDUCE THE TOTAL INFECTION RATE
-        self.total_infection_rate -= self.G.nodes[node]['sum_of_weights_i']*self.infection_rate
+        self.total_infection_rate -= self.G.nodes[node]['sum_of_weights_i']
         # Increase the weight_i of neighbors, because they can now reinfect node
         for neighbor in self.G.neighbors(node):
             if self.G.nodes[neighbor]['infected']:
                 self.G.nodes[neighbor]['sum_of_weights_i'] += self.G[node][neighbor]['weight']
-                self.total_infection_rate += self.G[node][neighbor]['weight']*self.infection_rate
+                self.total_infection_rate += self.G[node][neighbor]['weight']
 
     def infect_neighbor(self, infected_node):
         neighbors = [n for n in self.G.neighbors(infected_node) if not self.G.nodes[n]['infected']]
@@ -103,7 +104,7 @@ class EpidemicGraph:
         plt.show()
 
 # Function optimized with Numba for choosing the neighbor to infect
-#@njit
+@njit
 def choose_neighbor_to_infect(weights):
     total_weight = np.sum(weights)
     r = random.uniform(0, total_weight)
@@ -149,14 +150,14 @@ def test_large_network(model="barabasi_albert"):
     # Create the graph based on the selected model
     if model == "barabasi_albert":
         num_edges = 2  # Default number of edges to attach in Barabási-Albert
-        ba_graph = nx.barabasi_albert_graph(num_nodes, num_edges)
+        graph_instance = nx.barabasi_albert_graph(num_nodes, num_edges)
     elif model == "erdos_renyi":
         p = 0.01  # Default probability for Erdos-Renyi graph
-        ba_graph = nx.erdos_renyi_graph(num_nodes, p)
+        graph_instance = nx.erdos_renyi_graph(num_nodes, p)
     elif model == "watts_strogatz":
         k = 4  # Each node is connected to k nearest neighbors in ring topology
         p = 0.1  # The probability of rewiring each edge
-        ba_graph = nx.watts_strogatz_graph(num_nodes, k, p)
+        graph_instance = nx.watts_strogatz_graph(num_nodes, k, p)
     else:
         raise ValueError("Invalid model type. Choose from 'barabasi_albert', 'erdos_renyi', or 'watts_strogatz'.")
 
@@ -164,9 +165,9 @@ def test_large_network(model="barabasi_albert"):
     graph = EpidemicGraph(infection_rate)
 
     # Add nodes and edges from the generated network to our epidemic graph
-    for node in ba_graph.nodes:
+    for node in graph_instance.nodes:
         graph.add_node(node)
-    for edge in ba_graph.edges:
+    for edge in graph_instance.edges:
         graph.add_edge(edge[0], edge[1], 1.0)  # Add edges with weight 1.0
 
     # Infect an initial node
@@ -175,7 +176,7 @@ def test_large_network(model="barabasi_albert"):
     infections_over_time = []
     simulated_time = []
     total_time = 0.0
-    time_steps = 10000
+    time_steps = 3000
 
     # Simulate infection spread over time
     for _ in range(time_steps):
