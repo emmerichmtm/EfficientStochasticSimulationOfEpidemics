@@ -1,5 +1,5 @@
 import numpy as np
-from numba import njit
+#from numba import njit
 import networkx as nx
 import matplotlib.pyplot as plt
 import random
@@ -10,13 +10,14 @@ import logging
 # Put level to INFO to see details
 logging.basicConfig(level=logging.CRITICAL)
 
-
 class EpidemicGraph:
     def __init__(self, infection_rate):
         self.G = nx.Graph()
         self.infection_rate = infection_rate
         self.infected_nodes = SortedList(key=lambda x: -self.G.nodes[x]['sum_of_weights_i'])
-        self.total_rate = 0
+        self.total_infection_rate = 0
+        self.recovery_rate = 10
+        self.total_recovery_rate = 0
 
     def add_node(self, node_id):
         self.G.add_node(node_id, infected=False, sum_of_weights_i=0.0)
@@ -25,20 +26,54 @@ class EpidemicGraph:
         self.G.add_edge(node1, node2, weight=weight)
 
     def simulate_step(self):
-        if not self.infected_nodes or self.total_rate <= 0:
+        if not self.infected_nodes or self.total_infection_rate <= 0:
             return float('inf')
-        wait_time = random.expovariate(self.infection_rate * self.total_rate)
-        r = random.uniform(0, self.total_rate)
-        logging.info(f'Random threshold: {r}, Total weight: {self.total_rate}, Infection rate: {self.infection_rate}')
-        cumulative = 0
-        for node in self.infected_nodes:
-            cumulative += self.G.nodes[node]['sum_of_weights_i']
-            logging.info(f'Node: {node}, Cumulative: {cumulative}')
-            if cumulative > r:
-                self.infect_neighbor(node)
-                break
-        logging.debug(f'Total weight: {self.total_rate}, Rate: {self.infection_rate}, Random threshold: {r}')
+        wait_time = random.expovariate(self.total_infection_rate+self.total_recovery_rate)
+        # recovery event or infection event
+        # choose a random number between 0 and total rate
+        r_or_i = random.uniform(0, self.total_infection_rate+self.total_recovery_rate)
+        if r_or_i < self.total_infection_rate: # infection event
+            r = random.uniform(0, self.total_infection_rate)
+            logging.info(f'Random threshold: {r}, Total weight: {self.total_infection_rate}, Infection rate: {self.infection_rate}')
+            cumulative = 0
+            for node in self.infected_nodes:
+                cumulative += self.G.nodes[node]['sum_of_weights_i']
+                logging.info(f'Node: {node}, Cumulative: {cumulative}')
+                if cumulative > r:
+                    self.infect_neighbor(node)
+                    break
+            logging.debug(f'Total weight: {self.total_infection_rate}, Rate: {self.infection_rate}, Random threshold: {r}')
+        else: # recovery event
+            r = random.uniform(0, self.total_recovery_rate)
+            cumulative = 0
+            node_to_recover = None
+            for node in self.infected_nodes:
+                cumulative += self.recovery_rate
+                if cumulative > r:
+                    node_to_recover = node
+                    break
+            if (node_to_recover):
+                if node_to_recover not in self.infected_nodes:
+                    logging.critical(f"Node {node_to_recover} not in infected nodes list (sim level).")
+                    logging.critical(f"Infected nodes: {self.infected_nodes}")
+                else:
+                    self.recover_node(node_to_recover)
         return wait_time
+
+    def recover_node(self, node):
+        self.G.nodes[node]['infected'] = False
+        if node in self.infected_nodes:
+           self.infected_nodes.remove(node)
+        else:
+            logging.critical(f"Node {node} not in infected nodes list.")
+        self.total_recovery_rate -= self.recovery_rate
+        # REDUCE THE TOTAL INFECTION RATE
+        self.total_infection_rate -= self.G.nodes[node]['sum_of_weights_i']
+        # Increase the weight_i of neighbors, because they can now reinfect node
+        for neighbor in self.G.neighbors(node):
+            if self.G.nodes[neighbor]['infected']:
+                self.G.nodes[neighbor]['sum_of_weights_i'] += self.G[node][neighbor]['weight']
+                self.total_infection_rate += self.G[node][neighbor]['weight']
 
     def infect_neighbor(self, infected_node):
         neighbors = [n for n in self.G.neighbors(infected_node) if not self.G.nodes[n]['infected']]
@@ -50,13 +85,14 @@ class EpidemicGraph:
     def infect_node(self, node):
         self.G.nodes[node]['infected'] = True
         self.infected_nodes.add(node)
+        self.total_recovery_rate += self.recovery_rate
         for neighbor in self.G.neighbors(node):
             if not self.G.nodes[neighbor]['infected']:
                 self.G.nodes[node]['sum_of_weights_i'] += self.G[node][neighbor]['weight']
-                self.total_rate += self.G[node][neighbor]['weight']
+                self.total_infection_rate += self.G[node][neighbor]['weight']
             else:
                 self.G.nodes[neighbor]['sum_of_weights_i'] -= self.G[node][neighbor]['weight']
-                self.total_rate -= self.G[node][neighbor]['weight']
+                self.total_infection_rate -= self.G[node][neighbor]['weight']
 
     def plot_graph(self, title="Graph"):
         plt.figure(figsize=(8, 5))
@@ -67,9 +103,8 @@ class EpidemicGraph:
         plt.title(title)
         plt.show()
 
-
 # Function optimized with Numba for choosing the neighbor to infect
-@njit
+#@njit
 def choose_neighbor_to_infect(weights):
     total_weight = np.sum(weights)
     r = random.uniform(0, total_weight)
@@ -78,7 +113,6 @@ def choose_neighbor_to_infect(weights):
         cumulative += weights[i]
         if cumulative > r:
             return i
-
 
 # Test Small Network
 def test_small_network():
@@ -163,6 +197,6 @@ def test_large_network(model="barabasi_albert"):
 if __name__ == "__main__":
     # You can switch between models by passing 'barabasi_albert', 'erdos_renyi', or 'watts_strogatz'
     test_small_network()
-    test_large_network("barabasi_albert")  # Barabási-Albert model
-    test_large_network("erdos_renyi")  # Erdős-Rényi model
-    test_large_network("watts_strogatz")  # Watts-Strogatz model
+#    test_large_network("barabasi_albert")  # Barabási-Albert model
+#    test_large_network("erdos_renyi")  # Erdős-Rényi model
+#    test_large_network("watts_strogatz")  # Watts-Strogatz model
