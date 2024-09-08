@@ -11,12 +11,11 @@ import logging
 logging.basicConfig(level=logging.CRITICAL)
 
 class EpidemicGraph:
-    def __init__(self, infection_rate):
+    def __init__(self, infection_rate=0.1, recovery_rate=0.1):
         self.G = nx.Graph()
         self.infection_rate = infection_rate
         self.infected_nodes = SortedList(key=lambda x: -self.G.nodes[x]['sum_of_weights_i'])
         self.total_infection_rate = 0
-        self.recovery_rate = 10
         self.total_recovery_rate = 0
 
     def add_node(self, node_id):
@@ -68,12 +67,12 @@ class EpidemicGraph:
             logging.critical(f"Node {node} not in infected nodes list.")
         self.total_recovery_rate -= self.recovery_rate
         # REDUCE THE TOTAL INFECTION RATE
-        self.total_infection_rate -= self.G.nodes[node]['sum_of_weights_i']
+        self.total_infection_rate -= self.G.nodes[node]['sum_of_weights_i']*self.infection_rate
         # Increase the weight_i of neighbors, because they can now reinfect node
         for neighbor in self.G.neighbors(node):
             if self.G.nodes[neighbor]['infected']:
                 self.G.nodes[neighbor]['sum_of_weights_i'] += self.G[node][neighbor]['weight']
-                self.total_infection_rate += self.G[node][neighbor]['weight']
+                self.total_infection_rate += self.G[node][neighbor]['weight']*self.infection_rate
 
     def infect_neighbor(self, infected_node):
         neighbors = [n for n in self.G.neighbors(infected_node) if not self.G.nodes[n]['infected']]
@@ -176,7 +175,7 @@ def test_large_network(model="barabasi_albert"):
     infections_over_time = []
     simulated_time = []
     total_time = 0.0
-    time_steps = 1000
+    time_steps = 10000
 
     # Simulate infection spread over time
     for _ in range(time_steps):
