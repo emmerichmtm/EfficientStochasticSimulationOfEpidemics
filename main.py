@@ -7,7 +7,9 @@ from sortedcontainers import SortedList
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+# Put level to INFO to see details
+logging.basicConfig(level=logging.CRITICAL)
+
 
 class EpidemicGraph:
     def __init__(self, infection_rate):
@@ -65,6 +67,7 @@ class EpidemicGraph:
         plt.title(title)
         plt.show()
 
+
 # Function optimized with Numba for choosing the neighbor to infect
 @njit
 def choose_neighbor_to_infect(weights):
@@ -76,26 +79,90 @@ def choose_neighbor_to_infect(weights):
         if cumulative > r:
             return i
 
-# Example Usage
-graph = EpidemicGraph(infection_rate=0.1)
-for i in range(1, 6):
-    graph.add_node(i)
-graph.add_edge(1, 2, 1.0)
-graph.add_edge(2, 3, 1.0)
-graph.add_edge(3, 4, 1.0)
-graph.add_edge(4, 5, 1.0)
-graph.add_edge(2, 5, 1.0)
 
-# Plot before infection
-graph.plot_graph("Graph Before Infection")
-logging.info("Infecting node 1...")
-graph.infect_node(1)  # Initial infection
+# Test Small Network
+def test_small_network():
+    logging.info("Starting small network test...")
+    graph = EpidemicGraph(infection_rate=0.1)
 
-steps = 3
-for i in range(steps):
-    logging.info(f"Simulating step {i + 1}...")
-    wait_time = graph.simulate_step()  # Simulate one step
-    logging.info(f"Wait time: {wait_time}")
+    # Create a small graph
+    for i in range(1, 6):
+        graph.add_node(i)
+    graph.add_edge(1, 2, 1.0)
+    graph.add_edge(2, 3, 1.0)
+    graph.add_edge(3, 4, 1.0)
+    graph.add_edge(4, 5, 1.0)
+    graph.add_edge(2, 5, 1.0)
 
-# Plot after initial infection
-graph.plot_graph("Graph After Infection")
+    # Plot before infection
+    graph.plot_graph("Small Graph Before Infection")
+    graph.infect_node(1)  # Initial infection
+
+    steps = 3
+    for i in range(steps):
+        graph.simulate_step()  # Simulate one step
+
+    # Plot after initial infection
+    graph.plot_graph("Small Graph After Infection")
+
+
+# Test Large Barabasi-Albert Network
+def test_large_network(model="barabasi_albert"):
+    logging.info(f"Starting large network test with {model} model...")
+
+    infection_rate = 0.1
+    num_nodes = 1000
+
+    # Create the graph based on the selected model
+    if model == "barabasi_albert":
+        num_edges = 2  # Default number of edges to attach in Barabási-Albert
+        ba_graph = nx.barabasi_albert_graph(num_nodes, num_edges)
+    elif model == "erdos_renyi":
+        p = 0.01  # Default probability for Erdos-Renyi graph
+        ba_graph = nx.erdos_renyi_graph(num_nodes, p)
+    elif model == "watts_strogatz":
+        k = 4  # Each node is connected to k nearest neighbors in ring topology
+        p = 0.1  # The probability of rewiring each edge
+        ba_graph = nx.watts_strogatz_graph(num_nodes, k, p)
+    else:
+        raise ValueError("Invalid model type. Choose from 'barabasi_albert', 'erdos_renyi', or 'watts_strogatz'.")
+
+    # Initialize the epidemic graph
+    graph = EpidemicGraph(infection_rate)
+
+    # Add nodes and edges from the generated network to our epidemic graph
+    for node in ba_graph.nodes:
+        graph.add_node(node)
+    for edge in ba_graph.edges:
+        graph.add_edge(edge[0], edge[1], 1.0)  # Add edges with weight 1.0
+
+    # Infect an initial node
+    graph.infect_node(0)
+
+    infections_over_time = []
+    simulated_time = []
+    total_time = 0.0
+    time_steps = 1000
+
+    # Simulate infection spread over time
+    for _ in range(time_steps):
+        infections_over_time.append(len([n for n in graph.G.nodes if graph.G.nodes[n]['infected']]))
+        wait_time = graph.simulate_step()  # Get the wait time for the next infection
+        total_time += wait_time
+        simulated_time.append(total_time)  # Store the cumulative simulated time
+
+    # Plot the number of infected nodes over simulated time
+    plt.figure(figsize=(10, 6))
+    plt.scatter(simulated_time, infections_over_time)
+    plt.xlabel("Simulated Time")
+    plt.ylabel("Number of Infected Nodes")
+    plt.title(f"Infection Spread Over Simulated Time in {model.replace('_', ' ').title()} Network")
+    plt.show()
+
+# Example usage:
+if __name__ == "__main__":
+    # You can switch between models by passing 'barabasi_albert', 'erdos_renyi', or 'watts_strogatz'
+    test_small_network()
+    test_large_network("barabasi_albert")  # Barabási-Albert model
+    test_large_network("erdos_renyi")  # Erdős-Rényi model
+    test_large_network("watts_strogatz")  # Watts-Strogatz model
