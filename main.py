@@ -49,7 +49,7 @@ class EpidemicGraph:
             node_to_recover = None
             for node in self.infected_nodes:
                 cumulative += self.recovery_rate
-                if cumulative > r:
+                if cumulative > r and node in self.infected_nodes:
                     node_to_recover = node
                     break
             if (node_to_recover):
@@ -197,6 +197,6 @@ def test_large_network(model="barabasi_albert"):
 if __name__ == "__main__":
     # You can switch between models by passing 'barabasi_albert', 'erdos_renyi', or 'watts_strogatz'
     test_small_network()
-#    test_large_network("barabasi_albert")  # Barabási-Albert model
-#    test_large_network("erdos_renyi")  # Erdős-Rényi model
-#    test_large_network("watts_strogatz")  # Watts-Strogatz model
+    test_large_network("barabasi_albert")  # Barabási-Albert model
+    test_large_network("erdos_renyi")  # Erdős-Rényi model
+    test_large_network("watts_strogatz")  # Watts-Strogatz model
