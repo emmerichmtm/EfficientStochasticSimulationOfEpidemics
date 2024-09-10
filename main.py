@@ -18,7 +18,7 @@ class EpidemicGraph:
         self.infected_nodes = SortedList(key=lambda x: -self.G.nodes[x]['sum_of_weights_i'])
         self.total_infection_rate = 0
         self.total_recovery_rate = 0
-
+        self.immunize_recovered = False
     def add_node(self, node_id):
         self.G.add_node(node_id, infected=False, sum_of_weights_i=0.0)
 
@@ -71,9 +71,12 @@ class EpidemicGraph:
         self.total_infection_rate -= self.G.nodes[node]['sum_of_weights_i']
         # Increase the weight_i of neighbors, because they can now reinfect node
         for neighbor in self.G.neighbors(node):
-            if self.G.nodes[neighbor]['infected']:
+            if self.G.nodes[neighbor]['infected'] and not self.immunize_recovered:
                 self.G.nodes[neighbor]['sum_of_weights_i'] += self.G[node][neighbor]['weight']
                 self.total_infection_rate += self.G[node][neighbor]['weight']
+            else:
+                # If immunize_recovered is True, we don't allow reinfection, and we remove the node from the graph
+                self.G.remove_edge(node, neighbor)
 
     def infect_neighbor(self, infected_node):
         neighbors = [n for n in self.G.neighbors(infected_node) if not self.G.nodes[n]['infected']]
