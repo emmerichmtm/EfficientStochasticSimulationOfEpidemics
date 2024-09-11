@@ -20,7 +20,7 @@ class EpidemicGraph:
         self.total_recovery_rate = 0
         self.immunize_recovered = False
     def add_node(self, node_id):
-        self.G.add_node(node_id, infected=False, sum_of_weights_i=0.0)
+        self.G.add_node(node_id, infected=False, recovered=False,sum_of_weights_i=0.0)
 
     def add_edge(self, node1, node2, weight):
         self.G.add_edge(node1, node2, weight=weight)
@@ -62,6 +62,7 @@ class EpidemicGraph:
 
     def recover_node(self, node):
         self.G.nodes[node]['infected'] = False
+        self.G.nodes[node]['recovered'] = True
         if node in self.infected_nodes:
            self.infected_nodes.remove(node)
         else:
@@ -79,7 +80,7 @@ class EpidemicGraph:
                 self.G.remove_edge(node, neighbor)
 
     def infect_neighbor(self, infected_node):
-        neighbors = [n for n in self.G.neighbors(infected_node) if not self.G.nodes[n]['infected']]
+        neighbors = [n for n in self.G.neighbors(infected_node) if (not self.G.nodes[n]['infected'] and not self.G.nodes[n]['recovered'])]
         if neighbors:
             weights = np.array([self.G[infected_node][n]['weight'] for n in neighbors])
             neighbor_to_infect = choose_neighbor_to_infect(weights)
@@ -179,7 +180,7 @@ def test_large_network(model="barabasi_albert"):
     infections_over_time = []
     simulated_time = []
     total_time = 0.0
-    time_steps = 3000
+    time_steps = 5000
 
     # Simulate infection spread over time
     for _ in range(time_steps):
