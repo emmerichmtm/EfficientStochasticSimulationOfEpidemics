@@ -5,19 +5,19 @@ import matplotlib.pyplot as plt
 import random
 import logging
 
-# Put level to INFO to see details
-logging.basicConfig(level=logging.CRITICAL)
 class EpidemicGraph:
-    def __init__(self, infection_rate=0.2, recovery_rate=0.5):
+    def __init__(self, infection_rate=0.1, recovery_rate=0.5, model=2):
         self.G = nx.Graph()
+        self.model = model  # 1: SIS  2: SIR
         self.infection_rate = infection_rate
         self.recovery_rate = recovery_rate  # Recovery rate is the same for all nodes
         self.infected_nodes = []
         self.total_infection_rate = 0
         self.total_recovery_rate = 0
         self.immunize_recovered = False
+
     def add_node(self, node_id):
-        self.G.add_node(node_id, infected=False, recovered=False,sum_of_weights_i=0.0)
+        self.G.add_node(node_id, infected=False, recovered=False, sum_of_weights_i=0.0)
 
     def add_edge(self, node1, node2, weight):
         self.G.add_edge(node1, node2, weight=weight)
@@ -25,13 +25,12 @@ class EpidemicGraph:
     def simulate_step(self):
         if not self.infected_nodes or self.total_infection_rate <= 0:
             return float('inf')
-        wait_time = random.expovariate(self.total_infection_rate+self.total_recovery_rate)
+        wait_time = random.expovariate(self.total_infection_rate + self.total_recovery_rate)
         # recovery event or infection event
         # choose a random number between 0 and total rate
-        r_or_i = random.uniform(0, self.total_infection_rate+self.total_recovery_rate)
-        if r_or_i < self.total_infection_rate: # infection event
+        r_or_i = random.uniform(0, self.total_infection_rate + self.total_recovery_rate)
+        if r_or_i < self.total_infection_rate:  # infection event
             r = random.uniform(0, self.total_infection_rate)
-            logging.info(f'Random threshold: {r}, Total weight: {self.total_infection_rate}, Infection rate: {self.infection_rate}')
             cumulative = 0
             for node in self.infected_nodes:
                 cumulative += self.G.nodes[node]['sum_of_weights_i']
@@ -39,8 +38,7 @@ class EpidemicGraph:
                 if cumulative > r:
                     self.infect_neighbor(node)
                     break
-            logging.debug(f'Total weight: {self.total_infection_rate}, Rate: {self.infection_rate}, Random threshold: {r}')
-        else: # recovery event
+        else:  # recovery event
             r = random.uniform(0, self.total_recovery_rate)
             cumulative = 0
             node_to_recover = None
@@ -49,30 +47,28 @@ class EpidemicGraph:
                 if cumulative > r and node in self.infected_nodes:
                     node_to_recover = node
                     break
-            if (node_to_recover):
-                if node_to_recover not in self.infected_nodes:
-                    logging.critical(f"Node {node_to_recover} not in infected nodes list (sim level).")
-                    logging.critical(f"Infected nodes: {self.infected_nodes}")
-                else:
+            if node_to_recover:
                     self.recover_node(node_to_recover)
         return wait_time
 
     def recover_node(self, node):
-        self.G.nodes[node]['infected'] = False
-        self.G.nodes[node]['recovered'] = True
         if node in self.infected_nodes:
-           self.infected_nodes.remove(node)
+            self.infected_nodes.remove(node)
         self.total_recovery_rate -= self.recovery_rate
-        # REDUCE THE TOTAL INFECTION RATE
-        self.total_infection_rate -= self.G.nodes[node]['sum_of_weights_i']
+
         # Increase the weight_i of neighbors, because they can now reinfect node
-        for neighbor in self.G.neighbors(node):
-            if self.G.nodes[neighbor]['infected'] and not self.immunize_recovered:
+        if self.model == 1:  # SIS
+            self.total_infection_rate += self.G.nodes[node]['sum_of_weights_i']
+            for neighbor in self.G.neighbors(node):
                 self.G.nodes[neighbor]['sum_of_weights_i'] += self.G[node][neighbor]['weight']
                 self.total_infection_rate += self.G[node][neighbor]['weight']
-
+            self.G.nodes[node]['infected'] = False
+        elif self.model == 2:  # SIR
+            self.G.nodes[node]['recovered'] = True
+            self.G.nodes[node]['infected'] = False
     def infect_neighbor(self, infected_node):
-        neighbors = [n for n in self.G.neighbors(infected_node) if (not self.G.nodes[n]['infected'] and not self.G.nodes[n]['recovered'])]
+        neighbors = [n for n in self.G.neighbors(infected_node) if
+                (not self.G.nodes[n]['infected'] and not self.G.nodes[n]['recovered'])]
         if neighbors:
             weights = np.array([self.G[infected_node][n]['weight'] for n in neighbors])
             total_weight = np.sum(weights)
@@ -106,8 +102,6 @@ class EpidemicGraph:
         nx.draw_networkx_edges(self.G, pos, width=1.0, alpha=0.5)
         plt.title(title)
         plt.show()
-
-
 
 # Test Small Network
 def test_small_network():
@@ -156,7 +150,7 @@ def test_large_network(model="barabasi_albert"):
         raise ValueError("Invalid model type. Choose from 'barabasi_albert', 'erdos_renyi', or 'watts_strogatz'.")
 
     # Initialize the epidemic graph
-    graph = EpidemicGraph(0.2,0.1)
+    graph = EpidemicGraph(0.2, 0.1)
 
     # Add nodes and edges from the generated network to our epidemic graph
     for node in graph_instance.nodes:
@@ -186,6 +180,7 @@ def test_large_network(model="barabasi_albert"):
     plt.ylabel("Number of Infected Nodes")
     plt.title(f"Infection Spread Over Simulated Time in {model.replace('_', ' ').title()} Network")
     plt.show()
+
 
 # Example usage:
 if __name__ == "__main__":
