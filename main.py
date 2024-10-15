@@ -3,19 +3,16 @@ from numba import njit
 import networkx as nx
 import matplotlib.pyplot as plt
 import random
-from sortedcontainers import SortedList
 import logging
 
-# Set up logging
 # Put level to INFO to see details
 logging.basicConfig(level=logging.CRITICAL)
-
 class EpidemicGraph:
-    def __init__(self, infection_rate=0.1, recovery_rate=0.1):
+    def __init__(self, infection_rate=0.2, recovery_rate=0.5):
         self.G = nx.Graph()
         self.infection_rate = infection_rate
         self.recovery_rate = recovery_rate  # Recovery rate is the same for all nodes
-        self.infected_nodes = SortedList(key=lambda x: -self.G.nodes[x]['sum_of_weights_i'])
+        self.infected_nodes = []
         self.total_infection_rate = 0
         self.total_recovery_rate = 0
         self.immunize_recovered = False
@@ -65,8 +62,6 @@ class EpidemicGraph:
         self.G.nodes[node]['recovered'] = True
         if node in self.infected_nodes:
            self.infected_nodes.remove(node)
-        else:
-            logging.critical(f"Node {node} not in infected nodes list.")
         self.total_recovery_rate -= self.recovery_rate
         # REDUCE THE TOTAL INFECTION RATE
         self.total_infection_rate -= self.G.nodes[node]['sum_of_weights_i']
@@ -75,20 +70,25 @@ class EpidemicGraph:
             if self.G.nodes[neighbor]['infected'] and not self.immunize_recovered:
                 self.G.nodes[neighbor]['sum_of_weights_i'] += self.G[node][neighbor]['weight']
                 self.total_infection_rate += self.G[node][neighbor]['weight']
-            else:
-                # If immunize_recovered is True, we don't allow reinfection, and we remove the node from the graph
-                self.G.remove_edge(node, neighbor)
 
     def infect_neighbor(self, infected_node):
         neighbors = [n for n in self.G.neighbors(infected_node) if (not self.G.nodes[n]['infected'] and not self.G.nodes[n]['recovered'])]
         if neighbors:
             weights = np.array([self.G[infected_node][n]['weight'] for n in neighbors])
-            neighbor_to_infect = choose_neighbor_to_infect(weights)
+            total_weight = np.sum(weights)
+            r = random.uniform(0, total_weight)
+            cumulative = 0
+            neighbor_to_infect = 0
+            for i in range(len(weights)):
+                cumulative += weights[i]
+                if cumulative > r:
+                    neighbor_to_infect = i
+                break
             self.infect_node(neighbors[neighbor_to_infect])
 
     def infect_node(self, node):
         self.G.nodes[node]['infected'] = True
-        self.infected_nodes.add(node)
+        self.infected_nodes.append(node)
         self.total_recovery_rate += self.recovery_rate
         for neighbor in self.G.neighbors(node):
             if not self.G.nodes[neighbor]['infected']:
@@ -107,16 +107,7 @@ class EpidemicGraph:
         plt.title(title)
         plt.show()
 
-# Function optimized with Numba for choosing the neighbor to infect
-@njit
-def choose_neighbor_to_infect(weights):
-    total_weight = np.sum(weights)
-    r = random.uniform(0, total_weight)
-    cumulative = 0
-    for i in range(len(weights)):
-        cumulative += weights[i]
-        if cumulative > r:
-            return i
+
 
 # Test Small Network
 def test_small_network():
@@ -148,7 +139,6 @@ def test_small_network():
 def test_large_network(model="barabasi_albert"):
     logging.info(f"Starting large network test with {model} model...")
 
-    infection_rate = 0.1
     num_nodes = 1000
 
     # Create the graph based on the selected model
@@ -166,7 +156,7 @@ def test_large_network(model="barabasi_albert"):
         raise ValueError("Invalid model type. Choose from 'barabasi_albert', 'erdos_renyi', or 'watts_strogatz'.")
 
     # Initialize the epidemic graph
-    graph = EpidemicGraph(infection_rate)
+    graph = EpidemicGraph(0.2,0.1)
 
     # Add nodes and edges from the generated network to our epidemic graph
     for node in graph_instance.nodes:
@@ -180,7 +170,7 @@ def test_large_network(model="barabasi_albert"):
     infections_over_time = []
     simulated_time = []
     total_time = 0.0
-    time_steps = 5000
+    time_steps = 10000
 
     # Simulate infection spread over time
     for _ in range(time_steps):
