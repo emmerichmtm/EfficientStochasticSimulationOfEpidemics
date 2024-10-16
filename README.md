@@ -4,8 +4,9 @@ This repository contains a lean implementation of Gillespie's algorithm for simu
 
 ## New in this Version
 
-- **Gillespie’s Algorithm**: Implemented for SIS, SIR, and SI models.
-- **Optimized for Sparse Networks**: The implementation takes advantage of network sparsity, making it much faster when the number of infected nodes is small.
+- **Gillespie’s Algorithm**: Implemented for SIS, SIR, and SI models, using specficics of epidemic processes (linear number of state transitions) to avoid state space explosion.
+- **Optimized for Sparse Networks**: The implementation takes advantage of network sparsity, making it much faster when the number of neighbors per node is small.
+- **Optimized for Sparse Networks** The implementation maintains a list of infected nodes making it faster when the number of infected nodes is small.
 - **Incremental Rate Updates**: Infection and recovery rates are updated incrementally, avoiding redundant calculations and improving efficiency.
 - **Exact Timing via Exponential Distributions**: Both infection and recovery times follow exponential distributions, adhering to the exact timing mechanics without any workarounds.
 
