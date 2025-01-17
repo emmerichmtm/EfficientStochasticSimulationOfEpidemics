@@ -2,6 +2,13 @@
 
 This repository contains a lean implementation of Gillespie's algorithm for simulating epidemic spread through networks using the SIS, SIR, and SI (if recovery rate = 0) models. The main file can be found in the main branch, and the code is optimized for performance by exploiting the sparsity of graphs and using incremental updates for infection and recovery rates.
 
+# License
+
+Copyright (c) 2025 Michael T.M. Emmerich
+Licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+You are free to share and adapt this work with attribution.
+Provided "as is", without warranty of any kind.
+
 ## New in this Version
 
 - **Gillespie’s Algorithm**: Implemented for SIS, SIR, and SI models, using specficics of epidemic processes (linear number of state transitions) to avoid state space explosion.
