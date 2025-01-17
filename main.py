@@ -1,3 +1,8 @@
+# Copyright (c) 2025 Michael T.M. Emmerich
+# Licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+# You are free to share and adapt this work with attribution.
+# Provided "as is", without warranty of any kind.
+
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
