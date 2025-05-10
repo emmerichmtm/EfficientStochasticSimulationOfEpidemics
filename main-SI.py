@@ -3,6 +3,8 @@
 # You are free to share and adapt this work with attribution.
 # Provided "as is", without warranty of any kind.
 
+# This is an example about SI dynamics simulation
+
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
