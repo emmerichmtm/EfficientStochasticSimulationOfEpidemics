@@ -3,6 +3,9 @@
 # You are free to share and adapt this work with attribution.
 # Provided "as is", without warranty of any kind.
 
+#This example is preconfigured to demonstrate the dynamics of the SIR model on different network structures, 
+# including Barabási-Albert graphs, small networks, Erdős-Rényi (ER) graphs, and Watts-Strogatz graphs.
+
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -171,5 +174,5 @@ def test_large_network(model="barabasi_albert"):
 if __name__ == "__main__":
     test_small_network()
     test_large_network("barabasi_albert")
-    #test_large_network("erdos_renyi")
-    #test_large_network("watts_strogatz")
+    test_large_network("erdos_renyi")
+    test_large_network("watts_strogatz")
