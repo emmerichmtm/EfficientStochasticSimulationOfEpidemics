@@ -3,9 +3,14 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import random
 from datetime import datetime
-from typing import Dict, List, Any, Tuple
-from itertools import combinations
 from pathlib import Path
+from typing import Dict, List, Any, Tuple
+
+# -----------------------------
+# Implement B) bridge nodes at END of clique
+# Implement C) per-directed-meta-edge bridge infection markers
+# Recompute plots and save PNG
+# -----------------------------
 
 def build_graph_of_cliques(metaG: nx.Graph, clique_size: int, internal_weight=1.0, bridge_weight=1.0):
     meta_nodes = list(metaG.nodes())
@@ -29,22 +34,32 @@ def build_graph_of_cliques(metaG: nx.Graph, clique_size: int, internal_weight=1.
                 b = nodes[j]
                 fullG.add_edge(a, b, weight=float(internal_weight))
 
-    bridge_node: Dict[Any, Dict[Any, int]] = {u: {} for u in meta_nodes}
+    # B) assign bridge nodes from END of clique
+    bridge_node_meta: Dict[Any, Dict[Any, int]] = {u: {} for u in meta_nodes}
     bridge_nodes_list: Dict[int, List[int]] = {}
 
     for u in meta_nodes:
         idx = meta_to_idx[u]
         nodes = clique_nodes[idx]
-        nbrs = list(metaG.neighbors(u))
+        nbrs = sorted(list(metaG.neighbors(u)))
         bridge_nodes_list[idx] = []
         for k, v in enumerate(nbrs):
-            bridge_node[u][v] = nodes[k]
-            bridge_nodes_list[idx].append(nodes[k])
+            bn = nodes[-1 - k]
+            bridge_node_meta[u][v] = bn
+            bridge_nodes_list[idx].append(bn)
 
     for u, v in metaG.edges():
-        fullG.add_edge(bridge_node[u][v], bridge_node[v][u], weight=float(bridge_weight))
+        fullG.add_edge(bridge_node_meta[u][v], bridge_node_meta[v][u], weight=float(bridge_weight))
 
-    return fullG, meta_to_idx, bridge_nodes_list
+    # Also return a per-clique-index bridge map: bridge_node_idx[k][neighbor_meta] = node_id
+    bridge_node_idx: List[Dict[Any, int]] = [dict() for _ in range(K)]
+    for u in meta_nodes:
+        u_idx = meta_to_idx[u]
+        for v, nid in bridge_node_meta[u].items():
+            bridge_node_idx[u_idx][v] = nid
+
+    return fullG, meta_to_idx, bridge_node_idx, bridge_nodes_list
+
 
 class EpidemicGraphFixed:
     def __init__(self, infection_rate=0.2, recovery_rate=0.0, model=0, rng=None):
@@ -54,7 +69,7 @@ class EpidemicGraphFixed:
         self.recovery_rate = float(recovery_rate)
         self.infected_nodes = []
         self.total_infection_rate = 0.0  # UNscaled SI weight sum
-        self.total_recovery_rate = 0.0   # gamma * I
+        self.total_recovery_rate = 0.0
         self.on_infect = None
         self.on_recover = None
         self.rng = rng or random.Random()
@@ -128,8 +143,8 @@ class EpidemicGraphFixed:
 
         dt = self.rng.expovariate(total_rate)
         t = current_time + dt
-
         r = self.rng.uniform(0.0, total_rate)
+
         if r < scaled_infection:
             target = self.rng.uniform(0.0, self.total_infection_rate)
             cum = 0.0
@@ -146,33 +161,46 @@ class EpidemicGraphFixed:
                 if cum > target:
                     self.recover_node(node, t, event_iter)
                     break
+
         return dt
 
-def micro_single_run(fullG, clique_size, bridge_nodes_list, infection_rate=0.2, recovery_rate=0.0, model=0, max_events=200000, seed=1, initial_clique_idx=0):
+
+def micro_single_run(fullG, clique_size, bridge_node_idx: List[Dict[Any, int]],
+                    infection_rate=0.2, recovery_rate=0.0, model=0,
+                    max_events=200000, seed=1, initial_clique_idx=0, initial_node_offset=0):
     rng = random.Random(seed)
     epi = EpidemicGraphFixed(infection_rate=infection_rate, recovery_rate=recovery_rate, model=model, rng=rng)
+
     for n in fullG.nodes:
         epi.add_node(n)
     for u, v, data in fullG.edges(data=True):
         epi.add_edge(u, v, data.get("weight", 1.0))
 
-    K = len(bridge_nodes_list)
+    K = len(bridge_node_idx)
     current = [0] * K
     first = [None] * K
-    first_bridge = [None] * K
 
-    bridge_sets = {k: set(bridge_nodes_list.get(k, [])) for k in range(K)}
+    # C) per directed bridge infection times: list of dicts per clique index
+    bridge_times: List[Dict[Any, Tuple[float, int, int]]] = [dict() for _ in range(K)]
 
     def clique_of(node_id: int) -> int:
         return node_id // clique_size
+
+    # reverse lookup: node_id -> (clique_idx, neighbor_meta)
+    node_to_bridge: Dict[int, List[Tuple[int, Any]]] = {}
+    for k in range(K):
+        for v, nid in bridge_node_idx[k].items():
+            node_to_bridge.setdefault(nid, []).append((k, v))
 
     def on_inf(node_id, t, it):
         k = clique_of(node_id)
         current[k] += 1
         if first[k] is None:
             first[k] = (t, current[k], it)
-        if node_id in bridge_sets[k] and first_bridge[k] is None:
-            first_bridge[k] = (t, current[k], it)
+
+        for (kk, v) in node_to_bridge.get(node_id, []):
+            if v not in bridge_times[kk]:
+                bridge_times[kk][v] = (t, current[kk], it)
 
     def on_rec(node_id, t, it):
         k = clique_of(node_id)
@@ -181,7 +209,8 @@ def micro_single_run(fullG, clique_size, bridge_nodes_list, infection_rate=0.2, 
     epi.on_infect = on_inf
     epi.on_recover = on_rec
 
-    initial_node = initial_clique_idx * clique_size
+    # Seed in a bulk node (bridges are at the end now, so offset 0 is bulk)
+    initial_node = initial_clique_idx * clique_size + initial_node_offset
     epi.infect_node(initial_node, event_time=0.0, event_iter=0)
 
     times = [0.0]
@@ -195,9 +224,12 @@ def micro_single_run(fullG, clique_size, bridge_nodes_list, infection_rate=0.2, 
         times.append(t)
         for k in range(K):
             series[k].append(current[k])
-    return np.array(times), [np.array(s) for s in series], first, first_bridge
 
-def micro_total_run(fullG, infection_rate=0.2, recovery_rate=0.0, model=0, max_events=200000, seed=1, initial_node=0):
+    return np.array(times), [np.array(s) for s in series], first, bridge_times
+
+
+def micro_total_run(fullG, infection_rate=0.2, recovery_rate=0.0, model=0,
+                    max_events=200000, seed=1, initial_node=0):
     rng = random.Random(seed)
     epi = EpidemicGraphFixed(infection_rate=infection_rate, recovery_rate=recovery_rate, model=model, rng=rng)
     for n in fullG.nodes:
@@ -212,6 +244,7 @@ def micro_total_run(fullG, infection_rate=0.2, recovery_rate=0.0, model=0, max_e
     def on_rec(node_id, t, it):
         nonlocal total_I
         total_I -= 1
+
     epi.on_infect = on_inf
     epi.on_recover = on_rec
 
@@ -228,14 +261,18 @@ def micro_total_run(fullG, infection_rate=0.2, recovery_rate=0.0, model=0, max_e
         t += dt
         times.append(t)
         totals.append(total_I)
+
     return np.array(times), np.array(totals)
 
-def macro_single_run(metaG, clique_size, infection_rate=0.2, recovery_rate=0.0, model=0, bridge_weight=1.0, max_events=200000, seed=2, initial_meta_node=None):
+
+def macro_single_run(metaG, clique_size, infection_rate=0.2, recovery_rate=0.0, model=0,
+                     bridge_weight=1.0, max_events=200000, seed=2, initial_meta_node=None):
     rng = random.Random(seed)
     beta = float(infection_rate)
     gamma = float(recovery_rate)
 
     meta_nodes = list(metaG.nodes())
+    K = len(meta_nodes)
     deg = dict(metaG.degree())
     if clique_size <= max(deg.values()):
         raise ValueError("clique_size must exceed max meta-degree")
@@ -255,7 +292,8 @@ def macro_single_run(metaG, clique_size, infection_rate=0.2, recovery_rate=0.0, 
         return [v for v in bridge_state[u] if bridge_state[u][v] == 0]
 
     first = {u: None for u in meta_nodes}
-    first_bridge = {u: None for u in meta_nodes}
+    # C) per directed bridge infection times
+    bridge_times = {u: {} for u in meta_nodes}
 
     if initial_meta_node is None:
         initial_meta_node = meta_nodes[0]
@@ -268,8 +306,7 @@ def macro_single_run(metaG, clique_size, infection_rate=0.2, recovery_rate=0.0, 
     t = 0.0
 
     for it in range(1, max_events + 1):
-        rates = []
-        events = []
+        rates, events = [], []
 
         for u in meta_nodes:
             I = I_u(u); S = S_u(u)
@@ -311,8 +348,7 @@ def macro_single_run(metaG, clique_size, infection_rate=0.2, recovery_rate=0.0, 
                 if sb:
                     v = sb[pick]
                     bridge_state[u][v] = 1
-                    if first_bridge[u] is None:
-                        first_bridge[u] = (t, I_u(u), it)
+                    bridge_times[u].setdefault(v, (t, I_u(u), it))
             if first[u] is None:
                 first[u] = (t, I_u(u), it)
 
@@ -333,10 +369,9 @@ def macro_single_run(metaG, clique_size, infection_rate=0.2, recovery_rate=0.0, 
         elif kind == "bridge":
             u, v = chosen[1], chosen[2]
             bridge_state[v][u] = 1
+            bridge_times[v].setdefault(u, (t, I_u(v), it))
             if first[v] is None:
                 first[v] = (t, I_u(v), it)
-            if first_bridge[v] is None:
-                first_bridge[v] = (t, I_u(v), it)
 
         times.append(t)
         for u in meta_nodes:
@@ -344,10 +379,12 @@ def macro_single_run(metaG, clique_size, infection_rate=0.2, recovery_rate=0.0, 
 
     series_list = [np.array(series[u]) for u in meta_nodes]
     first_list = [first[u] for u in meta_nodes]
-    first_bridge_list = [first_bridge[u] for u in meta_nodes]
-    return np.array(times), series_list, first_list, first_bridge_list
+    bridge_list = [bridge_times[u] for u in meta_nodes]
+    return np.array(times), series_list, first_list, bridge_list
 
-def macro_total_run(metaG, clique_size, infection_rate=0.2, recovery_rate=0.0, model=0, bridge_weight=1.0, max_events=200000, seed=2, initial_meta_node=None):
+
+def macro_total_run(metaG, clique_size, infection_rate=0.2, recovery_rate=0.0, model=0,
+                    bridge_weight=1.0, max_events=200000, seed=2, initial_meta_node=None):
     rng = random.Random(seed)
     beta = float(infection_rate)
     gamma = float(recovery_rate)
@@ -377,8 +414,7 @@ def macro_total_run(metaG, clique_size, infection_rate=0.2, recovery_rate=0.0, m
     t = 0.0
 
     for it in range(1, max_events + 1):
-        rates = []
-        events = []
+        rates, events = [], []
 
         for u in meta_nodes:
             I = I_u(u); S = S_u(u)
@@ -441,7 +477,9 @@ def macro_total_run(metaG, clique_size, infection_rate=0.2, recovery_rate=0.0, m
 
         times.append(t)
         totals.append(sum(I_u(u) for u in meta_nodes))
+
     return np.array(times), np.array(totals)
+
 
 def step_sample(times, values, grid):
     times = np.asarray(times, dtype=float)
@@ -454,7 +492,8 @@ def quantile_bands(runs_times, runs_vals, grid, qs=(0.25, 0.5, 0.75)):
     M = np.vstack([step_sample(t, v, grid) for t, v in zip(runs_times, runs_vals)])
     return np.quantile(M, qs, axis=0)
 
-# ---- Generate BA metapopulation of cliques and save PNG ----
+
+# ---- Run BA demo & save PNG ----
 meta_n, meta_m = 10, 2
 clique_size = 50
 infection_rate, recovery_rate, model = 0.2, 0.0, 0
@@ -462,12 +501,17 @@ bridge_weight, internal_weight = 1.0, 1.0
 n_runs, max_events, seed = 25, 200000, 1
 
 metaG = nx.barabasi_albert_graph(meta_n, meta_m, seed=seed)
-fullG, meta_to_idx, bridge_nodes_list = build_graph_of_cliques(metaG, clique_size, internal_weight, bridge_weight)
+fullG, meta_to_idx, bridge_node_idx, bridge_nodes_list = build_graph_of_cliques(metaG, clique_size, internal_weight, bridge_weight)
 
-# representative runs
-t_micro, I_micro, first_micro, bridge_micro = micro_single_run(fullG, clique_size, bridge_nodes_list, infection_rate, recovery_rate, model, max_events, seed, 0)
+t_micro, I_micro, first_micro, bridge_micro = micro_single_run(
+    fullG, clique_size, bridge_node_idx,
+    infection_rate, recovery_rate, model, max_events, seed, 0, 0
+)
+
 meta_nodes = list(metaG.nodes())
-t_macro, I_macro, first_macro, bridge_macro = macro_single_run(metaG, clique_size, infection_rate, recovery_rate, model, bridge_weight, max_events, seed+1, meta_nodes[0])
+t_macro, I_macro, first_macro, bridge_macro = macro_single_run(
+    metaG, clique_size, infection_rate, recovery_rate, model, bridge_weight, max_events, seed+1, meta_nodes[0]
+)
 
 # stats
 micro_times, micro_totals, macro_times, macro_totals = [], [], [], []
@@ -484,17 +528,17 @@ macro_q = quantile_bands(macro_times, macro_totals, grid)
 
 # plot
 fig, (ax0, ax1, ax2) = plt.subplots(3, 1, figsize=(13, 12))
-
 degs = [d for _, d in metaG.degree()]
 ax0.set_title(f"Micro (node-level) — BA meta-graph: n={meta_n}, m={meta_m}, degrees={degs}")
+
 for k in range(meta_n):
     ax0.plot(t_micro, I_micro[k], label=f"Clique {k}")
     if first_micro[k] is not None:
         t0, y0, _ = first_micro[k]
         ax0.plot([t0], [y0], marker="X", linestyle="None")
-    if bridge_micro[k] is not None:
-        tb, yb, _ = bridge_micro[k]
-        ax0.plot([tb], [yb], marker="^", linestyle="None")
+    for v, (tb, yb, _) in bridge_micro[k].items():
+        ax0.plot([tb], [yb], marker="^", linestyle="None", markersize=5)
+
 ax0.set_xlabel("Simulated time")
 ax0.set_ylabel("Infected in clique")
 ax0.legend(ncol=5, fontsize=8, loc="upper left", bbox_to_anchor=(0, 1.02))
@@ -505,9 +549,9 @@ for k in range(meta_n):
     if first_macro[k] is not None:
         t0, y0, _ = first_macro[k]
         ax1.plot([t0], [y0], marker="X", linestyle="None")
-    if bridge_macro[k] is not None:
-        tb, yb, _ = bridge_macro[k]
-        ax1.plot([tb], [yb], marker="^", linestyle="None")
+    for v, (tb, yb, _) in bridge_macro[k].items():
+        ax1.plot([tb], [yb], marker="^", linestyle="None", markersize=5)
+
 ax1.set_xlabel("Simulated time")
 ax1.set_ylabel("Infected in clique")
 
@@ -515,18 +559,30 @@ line_m, = ax2.plot(grid, micro_q[1], label="Micro median (total infected)")
 ax2.fill_between(grid, micro_q[0], micro_q[2], alpha=0.2, color=line_m.get_color(), label="Micro 25–75% quantiles")
 line_M, = ax2.plot(grid, macro_q[1], label="Macro median (total infected)")
 ax2.fill_between(grid, macro_q[0], macro_q[2], alpha=0.2, color=line_M.get_color(), label="Macro 25–75% quantiles")
+
 ax2.set_title(f"Total infected: median + 25–75% band over {n_runs} runs")
 ax2.set_xlabel("Simulated time")
 ax2.set_ylabel("Total infected")
 ax2.legend(ncol=2, fontsize=9, loc="lower right")
 
-fig.text(0.01, 0.006, "Markers: X = first infection in clique, ^ = first infected bridge-node in clique", fontsize=10)
+fig.text(0.01, 0.006, "Markers: X = first infection in clique, ^ = infection of a specific bridge node (one per incident meta-edge)", fontsize=10)
 fig.tight_layout(rect=[0, 0.02, 1, 0.98])
 
 ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-outpath = Path(f"/mnt/data/ba_metapop_cliques_micro_macro_{ts}.png")
+outpath = Path(f"/mnt/data/ba_metapop_cliques_micro_macro_BC_{ts}.png")
 fig.savefig(outpath, dpi=200, bbox_inches="tight")
 plt.close(fig)
+
+# Also write an updated script file to /mnt/data for you
+script_text = """
+# main_chain_of_cliques_generalized.py (B+C version)
+# - Bridge nodes assigned at end of each clique (avoid seeding on a bridge node by default)
+# - Per-directed-edge bridge infection markers (one per incident meta-edge)
+#
+# Generated by ChatGPT in this session.
+"""
+# For brevity, we don't embed the whole notebook code here; you can copy it from the chat if needed.
+Path("/mnt/data/main_chain_of_cliques_generalized_BC_notes.txt").write_text(script_text, encoding="utf-8")
 
 str(outpath)
 
